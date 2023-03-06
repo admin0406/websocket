@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>服务器性能监控</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+<div id="cpuGraph"></div>
+<div id="memGraph"></div>
+<div id="interGraph"></div>
+<h1 id="name"></h1>
+<h1 id="ip"></h1>
+<script>
+    function insertKey(arr, key) {
+      if (arr.length > 500) {
+        arr.reverse();
+        arr.pop();
+        arr.reverse();
+      }
+      arr.push(key);
+      return arr;
+    }
+
+    // 创建WebSocket连接
+    var ws = new WebSocket("ws://localhost:8765/");
+
+    // 定义曲线图的初始数据
+    var cdata = {x: [], y: [], type: 'scatter', name: 'CPU Usage'};
+    var mdata = {x: [], y: [], type: 'scatter', name: 'Memory Usage'};
+    var trace1 = {x: [], y: [], type: 'scatter', name: 'download'};
+    var trace2 = {x: [], y: [], type: 'scatter', name: 'update'};
+
+    // 定义曲线图的布局
+    var cpulayout = {
+        title: 'CPU/内存 实时监控',
+        xaxis: {
+            title: '时间 (秒)'
+        },
+        yaxis: {
+            title:'百分比'
+        }
+    };
+    var netlayout = {
+        title: '网速 实时监控 蓝线下载 红线上传',
+        xaxis: {
+            title: '时间 (秒)'
+        },
+        yaxis: {
+            title: '单位:M/s'
+        }
+    };
+
+    // 在页面上绘制初始曲线图
+    Plotly.newPlot('cpuGraph', [cdata, mdata], cpulayout);
+    Plotly.newPlot('interGraph', [trace1, trace2], netlayout);
+
+    // 监听WebSocket连接状态的改变
+    ws.onopen = function () {
+        console.log("WebSocket连接已打开.");
+    };
+
+    ws.onmessage = function (evt) {
+        // 收到服务器发送的消息
+        var data = JSON.parse(evt.data);
+        //console.log(data);
+        // 将新数据添加到曲线图中
+        var today = new Date();
+        hh = String(today.getHours()).padStart(2, '0');
+        mm = String(today.getMinutes()).padStart(2, '0');
+        ss = String(today.getSeconds()).padStart(2, '0');
+        time = hh + ':' + mm + ':' + ss;
+        insertKey(cdata.x,time);
+        insertKey(cdata.y,data.cpu_usage);
+        insertKey(mdata.x,time);
+        insertKey(mdata.y,data.mem_usage);
+        insertKey(trace1.x,time);
+        insertKey(trace1.y,data.net_in);
+        insertKey(trace2.x,time);
+        insertKey(trace2.y,data.net_out);
+        // 更新曲线图的布局
+        cpulayout.yaxis.range = [0, 100];
+        var max = Math.max.apply(trace1.y, trace2.y)
+        var min = Math.min.apply(trace1.y, trace2.y)
+        netlayout.yaxis.range = [min, max];
+        // 更新曲线图的数据
+        Plotly.redraw('cpuGraph');
+        Plotly.redraw('interGraph');
+    };
+
+    ws.onclose = function () {
+        console.log("WebSocket连接已关闭.");
+    };
+</script>
+</body>
+</html>
