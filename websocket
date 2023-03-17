@@ -1,0 +1,91 @@
+import asyncio
+import websockets
+import json
+from typing import Callable, Dict
+from time import time
+import struct
+
+
+class WebSocketClient:
+    def __init__(self, url: str, user: str, interval: int, message_handler: Callable[[str, Dict], Dict]):
+        self.url = url
+        self.user = user
+        self.interval = interval
+        self.message_handler = message_handler
+        self.sent_messages = 0
+        self.start_time = 0
+
+    async def on_connect(self, websocket):
+        print('connect')
+        login_data = {'loginname': self.user, 'token': 'qwe123456', 'devictype': 1}
+        await self.send(websocket, 'OXC0001', login_data)
+
+    async def run(self):
+        headers = {
+            "Sec-WebSocket-Key": "KE34j6ilJnBa3GcYnPPKzA==",
+            "Origin": "https://game.bingoplus.com",
+            'Host': 'g04-goproxy-i.g04goproxy.com'
+        }
+        try:
+            async with websockets.connect(self.url, extra_headers=headers) as websocket:
+                self.websocket = websocket
+                self.start_time = time()
+                await self.on_connect(websocket)
+                await asyncio.gather(
+                    self.recv_loop(websocket),
+                    self.send_heartbeat(websocket),
+                )
+        except websockets.exceptions.ConnectionClosedError as e:
+            print(f"Connection closed for user {self.user}: {e}")
+
+    async def recv_loop(self, websocket):
+        while True:
+            try:
+                message = await asyncio.wait_for(websocket.recv(), timeout=self.interval)
+                message = json.loads(message)
+                await self.message_handler(websocket, message["cmd"], message["data"])
+            except asyncio.TimeoutError:
+                pass
+
+    async def send_heartbeat(self, websocket):
+        while True:
+            await asyncio.sleep(10)  # Send heartbeat every 10 seconds
+            await self.send(websocket, 'ping', {})
+
+    async def send(self, websocket, cmd: str, data: dict):
+        self.sent_messages += 1
+        message = struct.pack('!iiiHH', 1, 1, 0, 0, 0)
+        print(message)
+        await websocket.send(message)
+
+
+async def main(url, user, intv, num_clients, message_handler):
+    clients = [WebSocketClient(url, user + str(i), intv, message_handler) for i in range(num_clients)]
+    await asyncio.gather(*(client.run() for client in clients))
+
+
+def run(url: str, user: str, interval: int, num_clients: int,
+        message_handler: Callable[[websockets.WebSocketClientProtocol, str, Dict], Dict]):
+    asyncio.run(main(url, user, interval, num_clients, message_handler))
+
+
+# Customize your message handler here
+async def example_message_handler(websocket: websockets.WebSocketClientProtocol, cmd: str, data: dict) -> Dict:
+    # Your implementation here
+    if cmd == 'success':
+        user_data = {'username': 'aaa'}
+        sent_time = time()
+        print(f"Sent time: {sent_time}")
+        await websocket.send('userinfo', user_data)
+
+    if cmd == 'userinfo':
+        recv_time = time()
+        print(f"Received userinfo at: {recv_time}")
+
+
+if __name__ == "__main__":
+    url = "ws://localhost:8080"
+    intv = 5
+    user = "test111"
+    num_clients = 1
+    run(url, user, intv, num_clients, example_message_handler)
